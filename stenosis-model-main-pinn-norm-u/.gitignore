@@ -1,0 +1,9 @@
+**.zip
+**__pycache__
+**.png
+**.aux
+**.synctex.gz
+**.log
+**.out
+tmp
+venv

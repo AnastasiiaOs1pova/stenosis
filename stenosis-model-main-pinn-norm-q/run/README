@@ -1,0 +1,14 @@
+Physical units in options file and conversions:
+LENGTH, DIAMETER [cm]
+MASS [g]
+PRESSURE [mmHg]
+1 Pa = 7.5e-3 mmHg
+DENSITY [g / cm3] * coef1 = [mmHg / (cm^2/s^2)]
+coef1 = 7.5e-4
+VISCOSITY [mPa s] * coef2 = [mmHg s]
+coef2 = 7.5e-6
+WINDKESSEL PARAMETERS:
+RESISTANCE [mmHg s cm-1]
+Pa s m-3 = 7.5e-9 mmHg s cm-1
+COMPLIANCE [cm3 mmHg-1]
+m3 Pa-1 = 1.3333e8 cm3 mmHg-1

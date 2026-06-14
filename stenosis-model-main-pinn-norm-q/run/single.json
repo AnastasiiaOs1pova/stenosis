@@ -1,0 +1,47 @@
+{
+	"total_time": 0.2,
+	"space_step": 2.5e-1,
+	"time_step":  1.0e-4,
+	"density": 7.875e-4,
+	"viscosity": 0.0e-5,
+	"CFL": 0.9,
+	"scheme_gamma": 0.0,
+	"alastruey_gamma": 9.0,
+	"vessel":
+	{
+		"vessel_0":
+		{
+			"length": 1000.0,
+			"diameter": 2.0,
+			"area_diastolic": 3.14159,
+			"pressure_diastolic": 0.0,
+			"perturbation_speed": 616.0,
+			"wall_thickness": 0.15,
+			"young_modulus": 3.0e3,
+			"stats_index": 0
+		}
+	},
+	"bc_order": 2,
+	"bc":
+	{
+		"bc_0":
+		{
+			"bc_type": "inlet",
+			"vessel_index": 0,
+			"flux_type": "analytics",
+			"analytics_index": 0,
+			"time_period": 1.5,
+			"flux_filename": "run/flux/q_heart.csv"
+		},
+		"bc_1":
+		{
+			"bc_type": "outlet",
+			"vessel_index": 0,
+			"outlet_type": "outflow_pressure",
+			"outflow_pressure": 0.0,
+			"characteristic_impedance": 0.0,
+			"total_peripheral_resistance": 0.0,
+			"total_arterial_compliance": 0.0
+		}
+	}
+}
