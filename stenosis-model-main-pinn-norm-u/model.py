@@ -416,13 +416,10 @@ class BC(DictWithAttributeAccess):
 		if R_ref <= 0.0:
 			raise ValueError("R_ref must be positive")
 
-		def dp_from_q(q):
-			A_ref = pi * R_ref ** 2
-			q_eps = 1.0e-4
-			q_abs_smooth = np.sqrt(q * q + q_eps * q_eps)
-			V_ref = q_abs_smooth / max(A_ref, 1.0e-30)  # cm/s
-
-			Re = 2.0 * rho_phys * V_ref * R_ref / max(mu_phys, 1.0e-30)
+		def dp_from_u(u_signed):
+			u_eps = 1.0e-4
+			u_abs_smooth = np.sqrt(u_signed * u_signed + u_eps * u_eps)
+			Re = 2.0 * rho_phys * u_abs_smooth * R_ref / max(mu_phys, 1.0e-30)
 
 			return float(
 				pinn.dp_mmhg_from_Re(
@@ -433,32 +430,21 @@ class BC(DictWithAttributeAccess):
 					mu_phys=mu_phys,
 					R_ref=R_ref,
 					asym=asym,
-					signed_by_Q=q,
+					signed_by_Q=u_signed,
 				)
 			)
-
 		def resid_for(area):
 			u_end = alphas * area + betas
-			q_through = ORI[0] * area[0] * u_end[0]   # cm^3/s
+			q_through = ORI[0] * area[0] * u_end[0]   
 
-			A_ref = pi * R_ref ** 2
-			q_eps = 1.0e-4
-			q_abs_smooth = np.sqrt(q_through * q_through + q_eps * q_eps)
-			V_ref = q_abs_smooth / max(A_ref, 1.0e-30)  # cm/s
-			Re = 2.0 * rho_phys * V_ref * R_ref / max(mu_phys, 1.0e-30)
+			u_pinn = ORI[0] * u_end[0]          
 
-			dp_extra_mmhg = float(
-				pinn.dp_mmhg_from_Re(
-					Re=Re,
-					Lr=Lr,
-					Ds=Ds,
-					rho_phys=rho_phys,
-					mu_phys=mu_phys,
-					R_ref=R_ref,
-					asym=asym,
-					signed_by_Q=q_through,
-				)
-			)
+			u_eps = 1.0e-4
+			u_abs_smooth = np.sqrt(u_pinn * u_pinn + u_eps * u_eps)
+
+			Re = 2.0 * rho_phys * u_abs_smooth * R_ref / max(mu_phys, 1.0e-30)
+
+			dp_extra_mmhg = dp_from_u(u_pinn)
 
 			P_RHO = np.array(
 				[model.vessels[vessel_ids[i]].pressure(area[i]) for i in range(N)]
@@ -497,19 +483,22 @@ class BC(DictWithAttributeAccess):
 
 			JJ[0] = ORI * (2.0 * alphas * AREA + betas)
 
-			q0 = ORI[0] * AREA[0] * (alphas[0] * AREA[0] + betas[0])
-			dQdA0 = ORI[0] * (2.0 * alphas[0] * AREA[0] + betas[0])
 
-			eps_q = max(1.0e-6, 1.0e-3 * max(abs(q0), 1.0e-3))
-			dp_plus = dp_from_q(q0 + eps_q)
-			dp_minus = dp_from_q(q0 - eps_q)
-			ddp_dQ = (dp_plus - dp_minus) / (2.0 * eps_q)
+			u0 = ORI[0] * (alphas[0] * AREA[0] + betas[0])
+			du0_dA0 = ORI[0] * alphas[0]
+
+			eps_u = max(1.0e-6, 1.0e-3 * max(abs(u0), 1.0e-3))
+
+			dp_plus = dp_from_u(u0 + eps_u)
+			dp_minus = dp_from_u(u0 - eps_u)
+
+			ddp_dU = (dp_plus - dp_minus) / (2.0 * eps_u)
 
 			for i in range(1, N):
 				JJ[i][0] = (
 					model.vessels[vessel_ids[0]].pressure_deriv(AREA[0])
 					+ RHO * alphas[0] * (alphas[0] * AREA[0] + betas[0])
-					- ddp_dQ * dQdA0
+					- ddp_dU * du0_dA0
 				)
 				JJ[i][i] = -(
 					model.vessels[vessel_ids[i]].pressure_deriv(AREA[i])
@@ -559,11 +548,11 @@ class BC(DictWithAttributeAccess):
 			if not accepted:
 				fail = True
 				break
-
+			
 			niters += 1
 
 			if abs(xnorm) < 1.0e-15:
-				fail = not (rnorm < 1.0e-4 or ratio < 1.0e-4)
+				fail = not (rnorm < 1.0e-5 or ratio < 1.0e-4)
 				break
 
 		if fail:
@@ -584,25 +573,36 @@ class BC(DictWithAttributeAccess):
 
 		RESID_final, dp_extra_mmhg, q_through, Re_now = resid_for(AREA)
 
+
 		if "_last_pinn_print_t" not in model.__dict__:
 			model._last_pinn_print_t = -1.0
 
 		A_ref = pi * R_ref ** 2
 		V_ref = abs(q_through) / max(A_ref, 1.0e-30)
 		P_dbg = np.array([model.vessels[vessel_ids[i]].pressure(AREA[i]) for i in range(N)])
+		u_pinn_dbg = ORI[0] * (alphas[0] * AREA[0] + betas[0])
 
+
+		Re_from_Vref = 2.0 * rho_phys * abs(V_ref) * R_ref / max(mu_phys, 1.0e-30)
+		Re_from_u = 2.0 * rho_phys * abs(u_pinn_dbg) * R_ref / max(mu_phys, 1.0e-30)
+		
 		t_mark = round(model.T, 2)
 		if abs(model.T - t_mark) < 0.5 * model.DT and t_mark != model._last_pinn_print_t:
 			# print(
-			#     f"T={model.T:.2f}  "
-			#     f"Q={q_through:.4f}  "
-			#     f"V={V_ref:.4f}  "
-			#     f"Re={Re_now:.2f}  "
+			# 	f"T={model.T:.2f}  "
+			# 	f"Q={q_through:.4f}  "
+			# 	f"Vref=Q/Aref={V_ref:.4f}  "
+			# 	f"u_pinn={u_pinn_dbg:.4f}  "
+			# 	f"Re_u={Re_from_u:.2f}  "
+			# 	f"Re_Q={Re_from_Vref:.2f}  "
 			# 	f"resid_Q = {RESID_final[0]}  "
 			# 	f"resid_P = {RESID_final[1]}  "
-			#     f"P0={P_dbg[0]:.3f}  P1={P_dbg[1]:.3f}  "
-			#     # f"dP={P_dbg[0] - P_dbg[1]:.3f}  "
-			#     f"dp={dp_extra_mmhg:.3f}"
+			# 	f"P0={P_dbg[0]:.3f}  P1={P_dbg[1]:.3f}  "
+			# 	f"dP={P_dbg[0] - P_dbg[1]:.3f}  "
+			# 	f"dp_PINN={dp_extra_mmhg:.3f}  "
+			# 	f"rnorm={rnorm:.3e}  "
+			# 	f"ratio={ratio:.3e}  "
+			# 	# f"iters={niters}"
 			# )
 			model._last_pinn_print_t = t_mark
 
